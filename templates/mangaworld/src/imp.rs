@@ -1,6 +1,7 @@
 use super::Params;
 use aidoku::{
-	Chapter, ContentRating, DeepLinkResult, FilterValue, Manga, MangaPageResult, MangaStatus, Page,
+	Chapter, ContentRating, DeepLinkResult, FilterValue, HomeComponent, HomeComponentValue,
+	HomeLayout, Link, Listing, Manga, MangaPageResult, MangaStatus, Page,
 	PageContent, PageContext, Result, Viewer,
 	alloc::{String, Vec, string::ToString, vec},
 	helpers::{string::StripPrefixOrSelf, uri::QueryParameters},
@@ -39,12 +40,17 @@ pub trait Impl {
 						3 => "oldest",
 						4 => "a-z",
 						5 => "z-a",
-						_ => "a-z",
+						6 => "top_rated",
+						_ => "",
 					};
-					qs.push(&id, Some(value));
+					if !value.is_empty() {
+						qs.push(&id, Some(value));
+					}
 				}
 				FilterValue::Text { id, value } => {
-					qs.set(&id, Some(&value));
+					if !value.trim().is_empty() {
+						qs.set(&id, Some(&value));
+					}
 				}
 				FilterValue::Select { id, value } => {
 					qs.set(&id, Some(&value));
@@ -59,6 +65,57 @@ pub trait Impl {
 		}
 
 		let url = format!("{}/archive?{qs}", params.base_url);
+		self.parse_manga_page(params, url)
+	}
+
+	fn get_manga_list(&self, params: &Params, listing: Listing, page: i32) -> Result<MangaPageResult> {
+		let path = match listing.id.as_str() {
+			"latest" => format!("/?page={page}"),
+			"new" => format!("/archive?sort=newest&page={page}"),
+			"popular" => format!("/archive?sort=most_read&page={page}"),
+			"rated" => format!("/archive?sort=top_rated&page={page}"),
+			_ => return Err(error!("Unknown listing")),
+		};
+		self.parse_manga_page(params, format!("{}{path}", params.base_url))
+	}
+
+	fn get_home(&self, params: &Params) -> Result<HomeLayout> {
+		let mut components = Vec::new();
+		for (id, title) in [
+			("latest", "Ultimi aggiornamenti"),
+			("new", "Nuovi manga"),
+			("popular", "Più letti"),
+			("rated", "Più votati"),
+		] {
+			let listing = Listing {
+				id: id.into(),
+				name: title.into(),
+				..Default::default()
+			};
+			let result = match self.get_manga_list(params, listing.clone(), 1) {
+				Ok(result) => result,
+				Err(err) if id == "latest" => return Err(err),
+				Err(_) => continue,
+			};
+			if result.entries.is_empty() {
+				if id == "latest" {
+					return Err(error!("No latest updates found"));
+				}
+				continue;
+			}
+			components.push(HomeComponent {
+				title: Some(title.into()),
+				subtitle: None,
+				value: HomeComponentValue::Scroller {
+					entries: result.entries.into_iter().map(Into::into).collect::<Vec<Link>>(),
+					listing: Some(listing),
+				},
+			});
+		}
+		Ok(HomeLayout { components })
+	}
+
+	fn parse_manga_page(&self, params: &Params, url: String) -> Result<MangaPageResult> {
 		let html = Request::get(url)?.html()?;
 
 		let entries = html

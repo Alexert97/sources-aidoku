@@ -1,5 +1,5 @@
 #![no_std]
-use aidoku::{Source, prelude::*};
+use aidoku::{Home, ListingProvider, Source, prelude::*};
 use mangaworld_template::{Impl, MangaWorldTemplate, Params};
 
 const BASE_URL: &str = "https://www.mangaworld.me";
@@ -18,12 +18,12 @@ impl Impl for MangaWorld {
 	}
 }
 
-register_source!(MangaWorldTemplate<MangaWorld>, DeepLinkHandler);
+register_source!(MangaWorldTemplate<MangaWorld>, DeepLinkHandler, ListingProvider, Home);
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use aidoku::alloc::{String, Vec};
+	use aidoku::{Listing, alloc::{String, Vec}};
 	use aidoku_test::aidoku_test;
 
 	#[aidoku_test]
@@ -54,5 +54,22 @@ mod tests {
 		let pages = source.get_page_list(manga, chapter)
 			.expect("reader request should succeed");
 		assert!(!pages.is_empty(), "reader returned no pages");
+	}
+
+	#[aidoku_test]
+	fn latest_updates_returns_entries() {
+		let source = MangaWorldTemplate::<MangaWorld>::new();
+		let result = source.get_manga_list(
+			Listing { id: "latest".into(), name: "Ultimi aggiornamenti".into(), ..Default::default() },
+			1,
+		).expect("latest updates request should succeed");
+		assert!(!result.entries.is_empty(), "homepage returned no updates");
+	}
+
+	#[aidoku_test]
+	fn home_returns_sections() {
+		let source = MangaWorldTemplate::<MangaWorld>::new();
+		let home = source.get_home().expect("home should load");
+		assert!(home.components.len() >= 3, "expected latest, new, and popular lists");
 	}
 }

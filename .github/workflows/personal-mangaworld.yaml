@@ -1,4 +1,4 @@
-name: Build personal MangaWorld v8
+name: Build personal MangaWorld v9
 on:
   push:
     branches:
@@ -26,6 +26,9 @@ jobs:
       - name: Run live integration tests
         working-directory: sources/it.mangaworld
         run: cargo test
+      - name: Format Rust
+        working-directory: sources/it.mangaworld
+        run: cargo fmt --check || cargo fmt
       - name: Package MangaWorld
         working-directory: sources/it.mangaworld
         run: aidoku package
@@ -39,7 +42,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: mangaworld-v7
+          name: mangaworld-v9
           path: sources/it.mangaworld/package.aix
           if-no-files-found: error
       - name: Publish source list
