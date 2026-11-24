@@ -62,25 +62,26 @@ pub trait Impl {
 		let html = Request::get(url)?.html()?;
 
 		let entries = html
-			.select("div.comics-grid .entry")
+			.select(".archive-grid .archive-card, article.card, div.comics-grid .entry")
 			.map(|els| {
 				els.filter_map(|el| {
-					let link = el.select_first("a")?;
+					let link = el.select_first(".card-title a").or_else(|| el.select_first("a"))?;
 					Some(Manga {
 						key: link
-							.attr("href")?
+							.attr("abs:href")?
 							.strip_prefix_or_self(&params.base_url)
 							.trim_end_matches("/")
 							.into(),
-						title: link.attr("title")?,
-						cover: el.select_first("a.thumb img")?.attr("src"),
+						title: link.attr("title").filter(|s| !s.is_empty()).or_else(|| link.text())?,
+						cover: el.select_first(".card-cover img, a.thumb img").and_then(|img| img.attr("abs:src")),
 						..Default::default()
 					})
 				})
 				.collect::<Vec<_>>()
 			})
 			.unwrap_or_default();
-		let has_next_page = entries.len() == 16;
+		let has_next_page = html.select_first(".pager a[rel=next]").is_some()
+			|| (html.select_first("div.comics-grid").is_some() && entries.len() == 16);
 
 		Ok(MangaPageResult {
 			entries,
@@ -100,32 +101,32 @@ pub trait Impl {
 
 		if needs_details {
 			let info_element = html
-				.select_first("div.comic-info")
+				.select_first(".manga-info, div.comic-info")
 				.ok_or(error!("Page not found"))?;
 
 			manga.title = info_element
-				.select_first("h1.name")
+				.select_first("h1.manga-title, h1.name")
 				.and_then(|h1| h1.text())
 				.unwrap_or(manga.title);
-			manga.cover = info_element
-				.select_first(".thumb > img")
-				.and_then(|img| img.attr("src"))
+			manga.cover = html
+				.select_first(".manga-cover img, div.comic-info .thumb > img")
+				.and_then(|img| img.attr("abs:src"))
 				.or(manga.cover);
 			manga.artists = info_element
-				.select_first("a[href*=/archive?artist=]")
+				.select_first("a[href*='artist=']")
 				.and_then(|el| el.text())
 				.map(|s| vec![s]);
 			manga.authors = info_element
-				.select_first("a[href*=/archive?author=]")
+				.select_first("a[href*='author=']")
 				.and_then(|el| el.text())
 				.map(|s| vec![s]);
-			manga.description = html.select_first("div#noidungm").and_then(|div| div.text());
+			manga.description = html.select_first(".manga-plot, div#noidungm").and_then(|div| div.text());
 			manga.url = Some(manga_url.clone());
 			manga.tags = info_element
-				.select("div.meta-data a.badge")
+				.select(".hero-chips a, a[href*='type='], div.meta-data a.badge")
 				.map(|els| els.filter_map(|el| el.text()).collect());
 			manga.status = info_element
-				.select_first("a[href*=/archive?status=]")
+				.select_first("a[href*='status=']")
 				.and_then(|el| el.text())
 				.map(|text| match text.to_lowercase().as_str() {
 					"in corso" => MangaStatus::Ongoing,
@@ -147,7 +148,7 @@ pub trait Impl {
 				ContentRating::Safe
 			};
 			manga.viewer = info_element
-				.select_first("a[href*=/archive?type=]")
+				.select_first("a[href*='type=']")
 				.and_then(|el| el.text())
 				.map(|text| match text.to_lowercase().as_str() {
 					"manga" | "doujinshi" | "oneshot" => Viewer::RightToLeft,
@@ -171,17 +172,17 @@ pub trait Impl {
 					.find(|a| *a > 0.0)
 			}
 
-			manga.chapters = html.select(".chapters-wrapper .chapter").map(|els| {
+			manga.ch, a.chapters = html.select(".volume-list .ch-row, .chapters-wrapper .chapter").map(|els| {
 				els.filter_map(|el| {
-					let url = el.select_first("a.chap")?.attr("abs:href")?;
-					let title = el.select_first("span.d-inline-block")?.text()?;
+					let url = el.select_first("a.ch, a.chap")?.attr("abs:href")?;
+					let title = el.select_first(".ch-name, span.d-inline-block")?.text()?;
 					let chapter_number = get_chapter_number(&title);
 					Some(Chapter {
 						key: url.strip_prefix_or_self(&params.base_url).into(),
 						title: Some(title),
 						chapter_number,
 						date_uploaded: el
-							.select(".chap-date")
+							.select(".ch-date, .chap-date")
 							.and_then(|mut els| els.next_back())
 							.and_then(|el| el.text())
 							.and_then(|s| {
@@ -199,15 +200,21 @@ pub trait Impl {
 	}
 
 	fn get_page_list(&self, params: &Params, _manga: Manga, chapter: Chapter) -> Result<Vec<Page>> {
-		let url = format!("{}{}?style=list", params.base_url, chapter.key);
+		let key = chapter.key.replace("style=pages", "style=list");
+		let separator = if key.contains('?') { "&" } else { "?" };
+		let url = if key.contains("style=list") {
+			format!("{}{}", params.base_url, key)
+		} else {
+			format!("{}{}{separator}style=list", params.base_url, key)
+		};
 		let html = Request::get(url)?.html()?;
 
 		Ok(html
-			.select("div#page img.page-image")
+			.select("img.reader-page, div#page img.page-image")
 			.map(|els| {
 				els.filter_map(|el| {
 					Some(Page {
-						content: PageContent::url(el.attr("src")?),
+						content: PageContent::url(el.attr("abs:src")?),
 						..Default::default()
 					})
 				})
@@ -239,10 +246,10 @@ pub trait Impl {
 		let slash_count = path.matches('/').count();
 
 		if slash_count <= 3 {
-			// ex: https://www.mangaworld.cx/manga/2980/babylon-made-wa-nan-kounen
+			// ex: https://www.mangaworld.me/manga/2980/babylon-made-wa-nan-kounen
 			Ok(Some(DeepLinkResult::Manga { key: path.into() }))
 		} else {
-			// ex: https://www.mangaworld.cx/manga/2980/babylon-made-wa-nan-kounen/read/64a7eab08c9c4e3f780c5932/1
+			// ex: https://www.mangaworld.me/manga/2980/babylon-made-wa-nan-kounen/read/64a7eab08c9c4e3f780c5932/1
 			Ok(None)
 		}
 	}

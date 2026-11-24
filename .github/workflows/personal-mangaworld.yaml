@@ -1,4 +1,4 @@
-name: Build personal MangaWorld v7
+name: Build personal MangaWorld v8
 on:
   push:
     branches:
@@ -18,11 +18,24 @@ jobs:
           toolchain: "1.99.0"
           targets: wasm32-unknown-unknown
       - uses: ./.github/actions/install-aidoku-cli
+        id: aidoku
+      - name: Install Aidoku test runner
+        env:
+          AIDOKU_REVISION: ${{ steps.aidoku.outputs.revision }}
+        run: cargo install --git https://github.com/Aidoku/aidoku-rs --rev "$AIDOKU_REVISION" aidoku-test-runner
+      - name: Run live integration tests
+        working-directory: sources/it.mangaworld
+        run: cargo test
       - name: Package MangaWorld
         working-directory: sources/it.mangaworld
         run: aidoku package
       - name: Build personal source list
         run: aidoku build sources/it.mangaworld/package.aix --name "Personal MangaWorld"
+      - name: Fix personal website links
+        run: |
+          sed -i 's|https://aidoku-community.github.io/sources/|https://alexert97.github.io/sources-aidoku/|g; s|https://github.com/aidoku-community/sources|https://github.com/Alexert97/sources-aidoku|g; s|Aidoku Community Sources|Personal MangaWorld|g' public/index.html
+      - name: Verify package
+        run: aidoku verify sources/it.mangaworld/package.aix
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
