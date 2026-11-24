@@ -1,5 +1,5 @@
 #![no_std]
-use aidoku::{Home, ListingProvider, Source, prelude::*};
+use aidoku::{Source, prelude::*};
 use mangaworld_template::{Impl, MangaWorldTemplate, Params};
 
 const BASE_URL: &str = "https://www.mangaworld.me";
@@ -23,7 +23,7 @@ register_source!(MangaWorldTemplate<MangaWorld>, DeepLinkHandler, ListingProvide
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use aidoku::{Listing, alloc::{String, Vec}};
+	use aidoku::{Home, Listing, ListingProvider, alloc::{String, Vec}};
 	use aidoku_test::aidoku_test;
 
 	#[aidoku_test]
