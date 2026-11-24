@@ -1,13 +1,13 @@
 use super::Params;
 use aidoku::{
 	Chapter, ContentRating, DeepLinkResult, FilterValue, HomeComponent, HomeComponentValue,
-	HomeLayout, Link, Listing, Manga, MangaPageResult, MangaStatus, Page,
+	HomeLayout, Link, Listing, Manga, MangaPageResult, MangaStatus, MangaWithChapter, Page,
 	PageContent, PageContext, Result, Viewer,
 	alloc::{String, Vec, string::ToString, vec},
 	helpers::{string::StripPrefixOrSelf, uri::QueryParameters},
 	imports::{
 		net::Request,
-		std::{parse_date_with_options, send_partial_result},
+		std::{current_date, parse_date_with_options, send_partial_result},
 	},
 	prelude::*,
 };
@@ -134,13 +134,55 @@ pub trait Impl {
 				}
 				continue;
 			}
-			components.push(HomeComponent {
-				title: Some(title.into()),
-				subtitle: None,
-				value: HomeComponentValue::Scroller {
+			let value = if id == "latest" {
+				// Keep the site's order, and limit extra detail requests to the first 12 titles.
+				let mut entries = Vec::new();
+				for manga in result.entries.iter().take(12) {
+					if let Ok(mut details) = self.get_manga_update(params, manga.clone(), false, true)
+						&& let Some(chapters) = details.chapters.take()
+						&& let Some(mut chapter) = chapters.iter()
+							.max_by(|a, b| a.date_uploaded.cmp(&b.date_uploaded).then_with(|| a.chapter_number.partial_cmp(&b.chapter_number).unwrap_or(core::cmp::Ordering::Equal)))
+							.cloned()
+					{
+						// This label is only used in the home preview, never in the saved chapter list.
+						let count = chapters.len();
+						chapter.title = Some(if chapter.chapter_number.is_some() {
+							format!("{count} capitoli totali")
+						} else {
+							format!("{} · {count} capitoli totali", chapter.title.as_deref().unwrap_or("Ultimo capitolo"))
+						});
+						entries.push(MangaWithChapter { manga: details, chapter });
+					}
+				}
+				if entries.is_empty() {
+					HomeComponentValue::Scroller {
+						entries: result.entries.into_iter().map(Into::into).collect::<Vec<Link>>(),
+						listing: Some(listing),
+					}
+				} else {
+					HomeComponentValue::MangaChapterList {
+						page_size: Some(5),
+						entries,
+						listing: Some(listing),
+					}
+				}
+			} else if id == "popular" || id == "rated" {
+				HomeComponentValue::MangaList {
+					ranking: true,
+					page_size: Some(5),
 					entries: result.entries.into_iter().map(Into::into).collect::<Vec<Link>>(),
 					listing: Some(listing),
-				},
+				}
+			} else {
+				HomeComponentValue::Scroller {
+					entries: result.entries.into_iter().map(Into::into).collect::<Vec<Link>>(),
+					listing: Some(listing),
+				}
+			};
+			components.push(HomeComponent {
+				title: Some(title.into()),
+				subtitle: if id == "latest" { Some("Ultimi capitoli pubblicati".into()) } else { None },
+				value,
 			});
 		}
 		Ok(HomeLayout { components })
@@ -208,7 +250,17 @@ pub trait Impl {
 				.select_first("a[href*='author=']")
 				.and_then(|el| el.text())
 				.map(|s| vec![s]);
-			manga.description = html.select_first(".manga-plot, div#noidungm").and_then(|div| div.text());
+			let mut description = String::new();
+			if let Some(year) = info_element.select_first("a[href*='year=']").and_then(|el| el.text()) {
+				description.push_str(&format!("Anno di uscita: {year}\n\n"));
+			}
+			if let Some(plot) = html.select_first(".manga-plot, div#noidungm").and_then(|div| div.text()) {
+				description.push_str(&plot);
+			}
+			if let Some(alternative) = info_element.select_first(".manga-alt").and_then(|el| el.text()) {
+				description.push_str(&format!("\n\n{alternative}"));
+			}
+			manga.description = (!description.is_empty()).then_some(description);
 			manga.url = Some(manga_url.clone());
 			manga.tags = info_element
 				.select(".hero-chips a, a[href*='type='], div.meta-data a.badge")
@@ -267,14 +319,15 @@ pub trait Impl {
 					let chapter_number = get_chapter_number(&title);
 					Some(Chapter {
 						key: url.strip_prefix_or_self(&params.base_url).into(),
-						title: Some(title),
+						title: if chapter_number.is_some() && title.to_lowercase().starts_with("capitolo ") && title.split_whitespace().count() == 2 { None } else { Some(title) },
 						chapter_number,
 						date_uploaded: el
-							.select(".ch-date, .chap-date")
+							.select(".ch-date, .chap-date, time")
 							.and_then(|mut els| els.next_back())
-							.and_then(|el| el.text())
-							.and_then(|s| {
-								parse_date_with_options(s, "dd MMMM yyyy", "it", "current")
+							.and_then(|date| {
+								date.attr("datetime").and_then(|s| parse_chapter_date(&s))
+									.or_else(|| date.attr("title").and_then(|s| parse_chapter_date(&s)))
+									.or_else(|| date.text().and_then(|s| parse_chapter_date(&s)))
 							}),
 						url: Some(url),
 						..Default::default()
@@ -341,4 +394,42 @@ pub trait Impl {
 			Ok(None)
 		}
 	}
+}
+
+fn parse_chapter_date(text: &str) -> Option<i64> {
+	let text = text.trim();
+	for format in [
+		"yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX",
+		"yyyy-MM-dd HH:mm:ss", "d MMMM yyyy HH:mm", "d MMMM yyyy, HH:mm",
+		"d MMMM yyyy", "dd/MM/yyyy HH:mm", "dd/MM/yyyy", "yyyy-MM-dd",
+	] {
+		if let Some(date) = parse_date_with_options(text, format, "it", "Europe/Rome") {
+			return Some(date);
+		}
+	}
+	let lower = text.to_lowercase();
+	let now = current_date();
+	if lower == "adesso" || lower == "ora" || lower == "just now" {
+		return Some(now);
+	}
+	if lower == "ieri" {
+		return Some(now - 86400);
+	}
+	let mut parts = lower.split_whitespace();
+	let number = match parts.next()? {
+		"un" | "una" => 1,
+		value => value.parse::<i64>().ok()?,
+	};
+	if number < 0 || parts.next_back()? != "fa" {
+		return None;
+	}
+	let seconds = match parts.next()? {
+		"secondo" | "secondi" => 1,
+		"minuto" | "minuti" => 60,
+		"ora" | "ore" => 3600,
+		"giorno" | "giorni" => 86400,
+		"settimana" | "settimane" => 604800,
+		_ => return None,
+	};
+	now.checked_sub(number.checked_mul(seconds)?)
 }

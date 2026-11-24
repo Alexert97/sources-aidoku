@@ -23,7 +23,7 @@ register_source!(MangaWorldTemplate<MangaWorld>, DeepLinkHandler, ListingProvide
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use aidoku::{FilterValue, Home, Listing, ListingProvider, alloc::{String, Vec}};
+	use aidoku::{FilterValue, Home, HomeComponentValue, Listing, ListingProvider, alloc::{String, Vec}};
 	use aidoku_test::aidoku_test;
 
 	#[aidoku_test]
@@ -71,6 +71,13 @@ mod tests {
 		let source = MangaWorldTemplate::<MangaWorld>::new();
 		let home = source.get_home().expect("home should load");
 		assert!(home.components.len() >= 3, "expected latest, new, and popular lists");
+		let latest = home.components.first().expect("missing latest section");
+		let HomeComponentValue::MangaChapterList { entries, .. } = &latest.value else {
+			panic!("latest section should use the native chapter list");
+		};
+		assert!(!entries.is_empty(), "latest chapter list is empty");
+		assert!(entries.iter().all(|entry| entry.chapter.title.as_deref().is_some_and(|title| title.contains("capitoli totali"))));
+		assert!(entries.iter().any(|entry| entry.chapter.date_uploaded.is_some()), "expected publication dates for recent chapters");
 	}
 
 	#[aidoku_test]

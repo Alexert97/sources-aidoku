@@ -62,10 +62,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libfontconfig1-dev libfreetype6-dev libssl-dev libclang-dev
           pkg-config --modversion fontconfig
+      - name: Cache Aidoku test runner
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/aidoku-test-runner
+          key: aidoku-test-runner-${{ runner.os }}-${{ runner.arch }}-${{ steps.aidoku.outputs.revision }}-rust1.99.0
       - name: Install Aidoku test runner
         env:
           AIDOKU_REVISION: ${{ steps.aidoku.outputs.revision }}
-        run: cargo install --git https://github.com/Aidoku/aidoku-rs --rev "$AIDOKU_REVISION" aidoku-test-runner
+        run: |
+          if ! command -v aidoku-test-runner >/dev/null; then
+            cargo install --git https://github.com/Aidoku/aidoku-rs --rev "$AIDOKU_REVISION" aidoku-test-runner
+          fi
       - name: Run live integration tests
         working-directory: sources/it.mangaworld
         run: cargo test
@@ -84,7 +92,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: mangaworld-v9
+          name: mangaworld-v10
           path: sources/it.mangaworld/package.aix
           if-no-files-found: error
       - name: Publish source list
