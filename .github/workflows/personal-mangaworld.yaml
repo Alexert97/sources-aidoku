@@ -1,0 +1,37 @@
+name: Build personal MangaWorld v7
+on:
+  push:
+    branches:
+      - personal-mangaworld-v7
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.0"
+          targets: wasm32-unknown-unknown
+      - uses: ./.github/actions/install-aidoku-cli
+      - name: Package MangaWorld
+        working-directory: sources/it.mangaworld
+        run: aidoku package
+      - name: Build personal source list
+        run: aidoku build sources/it.mangaworld/package.aix --name "Personal MangaWorld"
+      - name: Upload installable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: mangaworld-v7
+          path: sources/it.mangaworld/package.aix
+          if-no-files-found: error
+      - name: Publish source list
+        uses: JamesIves/github-pages-deploy-action@v4.7.2
+        with:
+          branch: gh-pages
+          folder: public
+          single-commit: true
