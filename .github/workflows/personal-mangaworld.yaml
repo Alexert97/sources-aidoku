@@ -77,6 +77,30 @@ jobs:
       - name: Run live integration tests
         working-directory: sources/it.mangaworld
         run: cargo test
+      - name: Diagnose date markup if integration tests fail
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import urllib.request, re
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin
+          base = "https://www.mangaworld.me/"
+          def fetch(url):
+              req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+              return urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+          try:
+              home = fetch(base)
+              urls = list(dict.fromkeys(re.findall(r'href=["\']([^"\']*/manga/[^"\']+)["\']', home)))
+              for url in urls[:3]:
+                  if "/read/" in url:
+                      continue
+                  body = fetch(urljoin(base, url))
+                  print("Date markup for", url)
+                  for match in re.findall(r'<[^>]*(?:ch-date|chap-date|datetime|data-timestamp|data-date)[^>]*>[^<]{0,120}', body, flags=re.I)[:12]:
+                      print(match[:500])
+          except Exception as exc:
+              print("Diagnostic unavailable:", exc)
+          PY
       - name: Package MangaWorld
         env:
           RUSTFLAGS: -Dwarnings

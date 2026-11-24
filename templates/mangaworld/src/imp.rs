@@ -322,13 +322,14 @@ pub trait Impl {
 						title: if chapter_number.is_some() && title.to_lowercase().starts_with("capitolo ") && title.split_whitespace().count() == 2 { None } else { Some(title) },
 						chapter_number,
 						date_uploaded: el
-							.select(".ch-date, .chap-date, time")
-							.and_then(|mut els| els.next_back())
-							.and_then(|date| {
+							.select(".ch-date, .chap-date, time, [data-timestamp], [data-date]")
+							.and_then(|els| els.filter_map(|date| {
 								date.attr("datetime").and_then(|s| parse_chapter_date(&s))
+									.or_else(|| date.attr("data-timestamp").and_then(|s| parse_chapter_date(&s)))
+									.or_else(|| date.attr("data-date").and_then(|s| parse_chapter_date(&s)))
 									.or_else(|| date.attr("title").and_then(|s| parse_chapter_date(&s)))
 									.or_else(|| date.text().and_then(|s| parse_chapter_date(&s)))
-							}),
+							}).next_back()),
 						url: Some(url),
 						..Default::default()
 					})
@@ -398,6 +399,47 @@ pub trait Impl {
 
 fn parse_chapter_date(text: &str) -> Option<i64> {
 	let text = text.trim();
+	// The desktop test runner does not support localized month names or date-only
+	// formats. Normalize Italian dates, keeping a real time if one is provided.
+	let normalized = text.to_lowercase();
+	let mut normalized = normalized.replace(',', "").replace(" alle ", " ");
+	for (month, number) in [
+		("gennaio", "01"), ("febbraio", "02"), ("marzo", "03"),
+		("aprile", "04"), ("maggio", "05"), ("giugno", "06"),
+		("luglio", "07"), ("agosto", "08"), ("settembre", "09"),
+		("ottobre", "10"), ("novembre", "11"), ("dicembre", "12"),
+	] {
+		normalized = normalized.replace(month, number);
+	}
+	let parts: Vec<&str> = normalized.split_whitespace().collect();
+	if parts.len() >= 3
+		&& parts[0].parse::<u32>().is_ok()
+		&& parts[1].parse::<u32>().is_ok()
+		&& parts[2].len() == 4
+	{
+		let time = parts.get(3).copied().unwrap_or("00:00");
+		let candidate = format!("{}-{}-{} {time}", parts[2], parts[1], parts[0]);
+		for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm"] {
+			if let Some(date) = parse_date_with_options(&candidate, format, "en_US", "Europe/Rome") {
+				return Some(date);
+			}
+		}
+	}
+	if normalized.len() == 10 {
+		for format in ["dd/MM/yyyy HH:mm", "yyyy-MM-dd HH:mm", "dd-MM-yyyy HH:mm"] {
+			if let Some(date) = parse_date_with_options(format!("{normalized} 00:00"), format, "en_US", "Europe/Rome") {
+				return Some(date);
+			}
+		}
+	}
+	if let Ok(timestamp) = text.parse::<i64>() {
+		if (1_000_000_000..10_000_000_000).contains(&timestamp) {
+			return Some(timestamp);
+		}
+		if (1_000_000_000_000..10_000_000_000_000).contains(&timestamp) {
+			return Some(timestamp / 1000);
+		}
+	}
 	for format in [
 		"yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX",
 		"yyyy-MM-dd HH:mm:ss", "d MMMM yyyy HH:mm", "d MMMM yyyy, HH:mm",
