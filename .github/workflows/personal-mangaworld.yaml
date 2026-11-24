@@ -1,9 +1,13 @@
-name: Build personal MangaWorld v9
+name: Build personal MangaWorld
 on:
   push:
     branches:
       - personal-mangaworld-v7
   workflow_dispatch:
+
+concurrency:
+  group: personal-mangaworld
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -17,6 +21,40 @@ jobs:
         with:
           toolchain: "1.99.0"
           targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - name: JSON formatting
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            jq empty "$file"
+            if [[ -s "$file" && -n "$(tail -c 1 "$file")" ]]; then
+              echo "::error file=$file::Missing final newline"
+              exit 1
+            fi
+            if grep -nE $'^\t* +' "$file"; then
+              echo "::error file=$file::Use tabs for indentation"
+              exit 1
+            fi
+          done < <(find sources/it.mangaworld/res -type f -name '*.json' -print0)
+      - name: Rust formatting and Clippy
+        run: |
+          set -euo pipefail
+          for crate in sources/it.mangaworld templates/mangaworld; do
+            (
+              cd "$crate"
+              cargo fmt
+              cargo fmt --check
+              cargo clippy --target wasm32-unknown-unknown -- -D warnings
+            )
+          done
+      - name: Save formatting changes for final commit
+        if: always()
+        run: git diff -- sources/it.mangaworld templates/mangaworld > "${RUNNER_TEMP}/mangaworld-format.patch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mangaworld-format-patch
+          path: ${{ runner.temp }}/mangaworld-format.patch
       - uses: ./.github/actions/install-aidoku-cli
         id: aidoku
       - name: Install native test runner dependencies
@@ -31,10 +69,9 @@ jobs:
       - name: Run live integration tests
         working-directory: sources/it.mangaworld
         run: cargo test
-      - name: Format Rust
-        working-directory: sources/it.mangaworld
-        run: cargo fmt --check || cargo fmt
       - name: Package MangaWorld
+        env:
+          RUSTFLAGS: -Dwarnings
         working-directory: sources/it.mangaworld
         run: aidoku package
       - name: Build personal source list
@@ -47,7 +84,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: mangaworld-v9
+          name: mangaworld-v8
           path: sources/it.mangaworld/package.aix
           if-no-files-found: error
       - name: Publish source list

@@ -229,7 +229,7 @@ pub trait Impl {
 					.find(|a| *a > 0.0)
 			}
 
-			manga.ch, a.chapters = html.select(".volume-list .ch-row, .chapters-wrapper .chapter").map(|els| {
+			manga.chapters = html.select(".volume-list .ch-row, .chapters-wrapper .chapter").map(|els| {
 				els.filter_map(|el| {
 					let url = el.select_first("a.ch, a.chap")?.attr("abs:href")?;
 					let title = el.select_first(".ch-name, span.d-inline-block")?.text()?;
