@@ -2,8 +2,8 @@
 	"info": {
 		"id": "it.mangaworld",
 		"name": "MangaWorld",
-		"version": 6,
-		"url": "https://www.mangaworld.mx",
+		"version": 7,
+		"url": "https://www.mangaworld.cx",
 		"contentRating": 1,
 		"languages": ["it"],
 		"minAppVersion": "0.7.1"

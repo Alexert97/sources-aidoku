@@ -2,7 +2,7 @@
 use aidoku::{Source, prelude::*};
 use mangaworld_template::{Impl, MangaWorldTemplate, Params};
 
-const BASE_URL: &str = "https://www.mangaworld.mx";
+const BASE_URL: &str = "https://www.mangaworld.cx";
 
 struct MangaWorld;
 
