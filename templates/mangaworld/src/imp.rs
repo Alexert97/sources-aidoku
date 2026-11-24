@@ -25,6 +25,8 @@ pub trait Impl {
 		filters: Vec<FilterValue>,
 	) -> Result<MangaPageResult> {
 		let mut qs = QueryParameters::new();
+		let mut min_chapters = None;
+		let mut max_chapters = None;
 		qs.push("page", Some(&page.to_string()));
 		if query.is_some() {
 			qs.push("keyword", query.as_deref());
@@ -47,6 +49,16 @@ pub trait Impl {
 						qs.push(&id, Some(value));
 					}
 				}
+				FilterValue::Text { id, value } if id == "min_chapters" || id == "max_chapters" => {
+					if !value.trim().is_empty() {
+						let count = value.trim().parse::<usize>().map_err(|_| error!("Inserisci un numero di capitoli intero e positivo"))?;
+						if id == "min_chapters" {
+							min_chapters = Some(count);
+						} else {
+							max_chapters = Some(count);
+						}
+					}
+				}
 				FilterValue::Text { id, value } => {
 					if !value.trim().is_empty() {
 						qs.set(&id, Some(&value));
@@ -64,8 +76,27 @@ pub trait Impl {
 			}
 		}
 
+		if matches!((min_chapters, max_chapters), (Some(min), Some(max)) if min > max) {
+			return Err(error!("Il minimo non può superare il massimo"));
+		}
 		let url = format!("{}/archive?{qs}", params.base_url);
-		self.parse_manga_page(params, url)
+		let mut result = self.parse_manga_page(params, url)?;
+		if min_chapters.is_none() && max_chapters.is_none() {
+			return Ok(result);
+		}
+		let mut filtered = Vec::new();
+		for manga in result.entries {
+			let details = self.get_manga_update(params, manga, false, true)?;
+			let count = details.chapters.as_ref()
+				.ok_or(error!("Impossibile determinare il numero dei capitoli"))?
+				.len();
+			if min_chapters.is_none_or(|min| count >= min)
+				&& max_chapters.is_none_or(|max| count <= max) {
+				filtered.push(details);
+			}
+		}
+		result.entries = filtered;
+		Ok(result)
 	}
 
 	fn get_manga_list(&self, params: &Params, listing: Listing, page: i32) -> Result<MangaPageResult> {

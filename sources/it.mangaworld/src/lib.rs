@@ -23,7 +23,7 @@ register_source!(MangaWorldTemplate<MangaWorld>, DeepLinkHandler, ListingProvide
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use aidoku::{Home, Listing, ListingProvider, alloc::{String, Vec}};
+	use aidoku::{FilterValue, Home, Listing, ListingProvider, alloc::{String, Vec}};
 	use aidoku_test::aidoku_test;
 
 	#[aidoku_test]
@@ -71,5 +71,33 @@ mod tests {
 		let source = MangaWorldTemplate::<MangaWorld>::new();
 		let home = source.get_home().expect("home should load");
 		assert!(home.components.len() >= 3, "expected latest, new, and popular lists");
+	}
+
+	#[aidoku_test]
+	fn chapter_bounds_filter_search() {
+		let source = MangaWorldTemplate::<MangaWorld>::new();
+		let filtered = source.get_search_manga_list(
+			Some("One Piece".into()), 1,
+			Vec::from([FilterValue::Text { id: "min_chapters".into(), value: "100".into() }]),
+		).expect("minimum chapter filter should work");
+		assert!(filtered.entries.iter().any(|m| m.title.eq_ignore_ascii_case("One Piece")));
+		assert!(filtered.entries.iter().all(|m| m.chapters.as_ref().is_some_and(|c| c.len() >= 100)));
+
+		let filtered = source.get_search_manga_list(
+			Some("One Piece".into()), 1,
+			Vec::from([FilterValue::Text { id: "max_chapters".into(), value: "10".into() }]),
+		).expect("maximum chapter filter should work");
+		assert!(!filtered.entries.iter().any(|m| m.title.eq_ignore_ascii_case("One Piece")));
+		assert!(filtered.entries.iter().all(|m| m.chapters.as_ref().is_some_and(|c| c.len() <= 10)));
+	}
+
+	#[aidoku_test]
+	fn chapter_bounds_reject_invalid_range() {
+		let source = MangaWorldTemplate::<MangaWorld>::new();
+		let result = source.get_search_manga_list(None, 1, Vec::from([
+			FilterValue::Text { id: "min_chapters".into(), value: "100".into() },
+			FilterValue::Text { id: "max_chapters".into(), value: "10".into() },
+		]));
+		assert!(result.is_err());
 	}
 }

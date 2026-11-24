@@ -84,7 +84,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: mangaworld-v8
+          name: mangaworld-v9
           path: sources/it.mangaworld/package.aix
           if-no-files-found: error
       - name: Publish source list

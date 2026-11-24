@@ -2,7 +2,7 @@
 	"info": {
 		"id": "it.mangaworld",
 		"name": "MangaWorld",
-		"version": 8,
+		"version": 9,
 		"url": "https://www.mangaworld.me",
 		"contentRating": 1,
 		"languages": ["it"],
